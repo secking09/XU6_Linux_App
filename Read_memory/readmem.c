@@ -3,32 +3,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <string.h>
 
 #define PAGE_SIZE 4096
 #define PAGE_MASK (~(PAGE_SIZE - 1))
 
-void read_memory_to_file(off_t physical_address, size_t length, const char *output_file);
-int main(int argc, char *argv[])
- {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s <physical_address> <length> <output_file>\n", argv[0]);
-        return EXIT_FAILURE;
-    }
-
-    off_t physical_address = strtoul(argv[1], NULL, 0);
-    size_t length = strtoul(argv[2], NULL, 0);
-    const char *output_file = argv[3];
-
-    read_memory_to_file(physical_address, length, output_file);
-
-    printf("Memory dump written to %s\n", output_file);
-
-    return EXIT_SUCCESS;
-}
-
-
-void read_memory_to_file(off_t physical_address, size_t length, const char *output_file) {
+void read_memory_to_binary(off_t physical_address, size_t length, const char *output_file) {
     int mem_fd;
     void *mapped_base, *mapped_dev_base;
     off_t page_offset;
@@ -56,7 +35,7 @@ void read_memory_to_file(off_t physical_address, size_t length, const char *outp
     mapped_dev_base = mapped_base + page_offset;
 
     // Open the output file
-    FILE *file = fopen(output_file, "w");
+    FILE *file = fopen(output_file, "wb");
     if (!file) {
         perror("Error opening output file");
         munmap(mapped_base, length + page_offset);
@@ -64,17 +43,16 @@ void read_memory_to_file(off_t physical_address, size_t length, const char *outp
         exit(EXIT_FAILURE);
     }
 
-    // Write to the output file
-    fprintf(file, "#include <stdint.h>\n\n");
-    fprintf(file, "const uint8_t memory_dump[] = {\n");
-    for (size_t i = 0; i < length; i++) {
-        fprintf(file, "    0x%02x%s", *((unsigned char *)mapped_dev_base + i), (i < length - 1) ? "," : "");
-        if ((i + 1) % 16 == 0) {
-            fprintf(file, "\n");
-        }
+    // Write the memory content to the binary file
+    if (fwrite(mapped_dev_base, 1, length, file) != length) {
+        perror("Error writing to output file");
+        fclose(file);
+        munmap(mapped_base, length + page_offset);
+        close(mem_fd);
+        exit(EXIT_FAILURE);
     }
-    fprintf(file, "\n};\n");
-    fprintf(file, "const size_t memory_dump_size = %zu;\n", length);
+
+    printf("Memory dump written to %s\n", output_file);
 
     // Clean up
     fclose(file);
@@ -84,3 +62,17 @@ void read_memory_to_file(off_t physical_address, size_t length, const char *outp
     close(mem_fd);
 }
 
+int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s <physical_address> <length> <output_file>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    off_t physical_address = strtoul(argv[1], NULL, 0);
+    size_t length = strtoul(argv[2], NULL, 0);
+    const char *output_file = argv[3];
+
+    read_memory_to_binary(physical_address, length, output_file);
+
+    return EXIT_SUCCESS;
+}
